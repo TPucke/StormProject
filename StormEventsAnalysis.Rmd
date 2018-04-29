@@ -1,5 +1,5 @@
 ---
-title: "Health and Economic Consequence Ranking of Climatalogical Events"
+title: "Ranking of Climatalogical Storm Events - Harm to Human Health and Economic Consequence"
 output: html_document
 ---
 
@@ -11,7 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This analysis uses the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
 
-To support the prioritization of resources to be used for storm preparedness, this analysis ranks the human health and economic consequences of various types of events.  
+To support decisions about prioritization of resources to be used for storm preparedness, this analysis ranks the human health and economic consequences of various types of events.  
+
+In the human health area, tornadoes are by far the most harmful storm events, with a total of 220 categories reported. The largest economic impact has been caused by flood, with 429 categories reported. 
 
 ## Data Processing
 Libraries used in this analysis are loaded here.  
@@ -26,37 +28,41 @@ The original bzip2 compressed data file was downloaded using the link:
 
 The file was placed in the project directory and is the starting point for the following processing operations.
 
-### Reading the Raw Data
+#### Loading the Raw Data into R
+
 The R function `read.csv` is able to read data directly from the compressed version of the csv file. 
 
 ```{r raw.data, cache = TRUE}
 raw.data <- read.csv(file = "repdata_data_StormData.csv.bz2")
 ```
 
-There are 902297 rows and 37 columns in this data. 
+#### Characterizing the data
 
-```{r}
+There are 902297 rows and 37 columns in this data.
+
+```{r dim}
 dim(raw.data)
+names(raw.data)
 ```
 
-### Data Cleaning and Transformation
-
-#### Eliminate Extraneous Columns
+#### Data Cleaning and Transformation
 
 Many of the 37 columns in the data do not contribute to this analysis so they are removed here to help with efficient execution.  
 
 ```{r clean, cache=TRUE}
-names(raw.data)
 clean.data <- raw.data %>% select(REFNUM, EVTYPE, BGN_DATE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
 ```
 
-#### Manipulation of Column Types
+The following column type transformations are handled next.  
+1. Because the BGN_DATE column is initially read as a factor variable, we convert to a date type. 
+2. Columns FATALITIES and INJURIES are converted from numeric to integer.  
 
 ```{r columntypes, cache=TRUE}
-clean.data <- clean.data %>% mutate(BGN_DATE = as.Date(BGN_DATE, format = "%m/%d/%Y"))
+clean.data <- clean.data %>% 
+  mutate(BGN_DATE = as.Date(BGN_DATE, format = "%m/%d/%Y"),
+         FATALITIES = as.integer(FATALITIES),
+         INJURIES = as.integer(INJURIES)) 
 ```
-
-#### Interpretation of Economic Cost Values
 
 Each variable relating to a category of economic cost is represented in the raw data by 2 columns, which must be combined to obtain the actual monetary value.  For example, to obtain the value of property damage, the numeric value of the PROPDMG column must be adjusted by a multiplier that is related to values of the PROPDMGEXP field.  Crop damage is evaluated by similarly combining the CROPDMG and CROPDMGEXP columns.  
 
@@ -90,20 +96,55 @@ interpret.EXP <- function(mantissa, exponent) {
   return
 }
 
-x <- clean.data %>% 
+clean.data <- clean.data %>% 
   mutate(Property.Damage = interpret.EXP(PROPDMG,PROPDMGEXP), 
          Crop.Damage = interpret.EXP(CROPDMG,CROPDMGEXP)) %>%
   select(-c(PROPDMG,PROPDMGEXP,CROPDMG,CROPDMGEXP))
-# clean.data[clean.data$PROPDMGEXP %in% as.character(seq(5,8)) & clean.data$PROPDMG > 0,]
 ```
 
+The following histogram shows counts of all measurements in the raw data, grouped by decade.  It is evident that data collection efforts have yielded a dramatically increasing volume of recorded storm data over the years. 
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{R}
+hist(clean.data$BGN_DATE, 
+     breaks = as.Date(c("19500101", "19600101", "19700101", "19800101", "19900101", "20000101", "20100101", format(max(clean.data$BGN_DATE),"%Y%m%d")), "%Y%m%d"), 
+     freq = TRUE,
+     xlab = "Decade",
+     main = "Numbers of Recorded Storm Events by Decade")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Results
+
+Grouping the data by event type allows the analysis to examine aggregated statistics for each type of event. 
+
+```{R}
+grouped <- clean.data %>%
+  group_by(EVTYPE)
+```
+
+#### Storm Related Harm to Human Health
+
+The following list depicts the storm events causing harm to human health, in descending order of total people impacted. 
+
+```{R}
+health <- grouped %>% 
+  summarise(Deaths = sum(FATALITIES), Injuries = sum(INJURIES)) %>% 
+  mutate(Total = Deaths + Injuries) %>%
+  filter(Total > 0) %>%
+  arrange(desc(Total))
+as.data.frame(health)
+```
+
+#### Evaluating Economic Consequences
+
+The following list depicts the storm events causing economic consequences, in descending order of total cost (US$).  
+
+```{R}
+options(width = 80)
+econ <- grouped %>% 
+  summarise(Property.Damage = sum(Property.Damage), Crop.Damage = sum(Crop.Damage)) %>% 
+  mutate(Total = Property.Damage + Crop.Damage) %>%
+  filter(Total > 0) %>%
+  arrange(desc(Total))
+as.data.frame(econ)
+```
+
